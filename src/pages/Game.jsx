@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faHippo,
@@ -15,185 +15,199 @@ import {
 import { io } from "socket.io-client";
 import CancelIcon from "@mui/icons-material/Cancel";
 import Slider from "../components/Slider";
+import { reducer } from "../components/reducer";
 
-const Game = () => {
-  const animalIcons = useMemo(
-    () => [
-      { icon: faCat, name: "Cat" },
-      { icon: faCrow, name: "Crow" },
-      { icon: faDog, name: "Dog" },
-      { icon: faFish, name: "Fish" },
-      { icon: faFrog, name: "Frog" },
-      { icon: faHippo, name: "Hippo" },
-      { icon: faHorse, name: "Horse" },
-      { icon: faSpider, name: "Spider" },
-      { icon: faRodSnake, name: "Snake" },
-      { icon: faCow, name: "Cow" },
-    ],
-    []
-  );
-  const [betAmount, setBetAmount] = useState(Number(1));
-  const [betAmountButton, setBetAmountButton] = useState(1);
-  const [coins, setCoins] = useState();
-  const [timer, setTimer] = useState(0);
+const useSocket = (url, token, eventHandlers) => {
   const socketRef = useRef(null);
-  const [totalBet, setTotalBet] = useState(0);
-  const [message, setMessage] = useState("");
-  const [betClosed, setBetClosed] = useState();
-  const [placedBet, setPlacedBet] = useState({});
-  const [result, setResult] = useState();
-  const [last10bet, setLast10Bet] = useState([]);
-
-  const [animalCounts, setAnimalCounts] = useState(
-    animalIcons.reduce((acc, animal) => {
-      acc[animal.name] = 0;
-      return acc;
-    }, {})
-  );
-
-  const getLast10BetResultIcon = (last10Bets) => {
-    const last10BetsIcons = last10Bets.map((animalName) => {
-      const animal = animalIcons.find((animal) => animal.name === animalName);
-
-      return animal ? animal.icon : null;
-    });
-
-    return last10BetsIcons;
-  };
-  const handleBetPlaced = (animalName) => {
-    if (timer <= 10) {
-      return;
-    }
-
-    if (coins < betAmount) {
-      return;
-    }
-    if (betClosed) {
-      return;
-    }
-    const socket = socketRef.current;
-    socket.emit("total-bet", betAmount);
-    setTotalBet((prev) => prev + betAmount);
-    setAnimalCounts((prevBet) => ({
-      ...prevBet,
-      [animalName]: prevBet[animalName] + betAmount,
-    }));
-  };
-
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    console.log(token);
-    const socket = io("http://192.168.199.92:3000", {
+    const socket = io(url, {
       auth: {
         token: token,
       },
     });
     socketRef.current = socket;
 
-    socket.on("connect", () => {
-      socket.emit("join");
-    });
-    socket.on("newRound", () => {
-      setMessage("New Round");
-      setBetClosed(false);
-    });
-    socket.on("betclosed", () => {
-      setBetClosed(true);
-    });
-    socket.on("timer", (newTimer) => {
-      setTimer(newTimer);
-    });
-    socket.on("bet-data", (betData) => {
-      console.log(betData);
-      setPlacedBet(betData);
-    });
-
-    socket.on("init", ({ coins, last10BetResults }) => {
-      setCoins(coins);
-      const last10BetsIcons = getLast10BetResultIcon(last10BetResults);
-      setLast10Bet(last10BetsIcons);
-      setResult(last10BetResults[0]);
-    });
-
-    socket.on("last10Bets", (last10Bets) => {
-      const last10BetsIcons = getLast10BetResultIcon(last10Bets);
-      setLast10Bet(last10BetsIcons);
-    });
-
-    socket.on("total-bet-response", ({ success, coins }) => {
-      if (success == true) {
-        setCoins(coins);
-      }
-    });
-
-    socket.on("particular-bet-cancled", (coins) => {
-      setCoins(coins);
-    });
-    socket.on("result", (result) => {
-      setMessage(result);
-      setResult(result);
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Disconnected from server");
-    });
-
-    socket.on("connect_error", (err) => {
-      console.log(`Connection failed: ${err.message}`);
-    });
-    socket.on("refresh", () => {
-      socket.emit("refresh-coins");
-      setMessage("");
-      setTotalBet(0);
-      setAnimalCounts(
-        animalIcons.reduce((acc, animal) => {
-          acc[animal.name] = 0;
-          return acc;
-        }, {})
-      );
-      setPlacedBet({});
+    Object.keys(eventHandlers).forEach((event) => {
+      socket.on(event, eventHandlers[event]);
     });
 
     return () => {
       socket.disconnect();
     };
   }, []);
+  return socketRef;
+};
 
-  const handleBetAmmountChange = (amount) => {
-    setBetAmountButton(amount);
+const Game = () => {
+  const initialState = {
+    betAmount: 1,
+    betAmountButton: 1,
+    coins: 0,
+    timer: 0,
+    totalBet: 0,
+    message: "",
+    betClosed: false,
+    placedBet: {},
+    result: null,
+    last10bet: [],
+    animalCounts: {
+      Cat: 0,
+      Crow: 0,
+      Dog: 0,
+      Fish: 0,
+      Frog: 0,
+      Hippo: 0,
+      Horse: 0,
+      Spider: 0,
+      Snake: 0,
+      Cow: 0,
+    },
+  };
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const animalIcons = [
+    { icon: faCat, name: "Cat" },
+    { icon: faCrow, name: "Crow" },
+    { icon: faDog, name: "Dog" },
+    { icon: faFish, name: "Fish" },
+    { icon: faFrog, name: "Frog" },
+    { icon: faHippo, name: "Hippo" },
+    { icon: faHorse, name: "Horse" },
+    { icon: faSpider, name: "Spider" },
+    { icon: faRodSnake, name: "Snake" },
+    { icon: faCow, name: "Cow" },
+  ];
 
-    setBetAmount(amount);
+  const token = localStorage.getItem("token");
+  const eventHandlers = {
+    connect: () => {
+      socketRef.current.emit("join");
+    },
+    newRound: () => {
+      dispatch({ type: "SET_MESSAGE", payload: "New Round" });
+      dispatch({ type: "SET_BET_CLOSED", payload: false });
+    },
+    betclosed: () => {
+      dispatch({ type: "SET_BET_CLOSED", payload: true });
+    },
+    timer: (newTimer) => {
+      dispatch({ type: "SET_TIMER", payload: newTimer });
+    },
+    "bet-data": (betData) => {
+      dispatch({ type: "SET_PLACED_BET", payload: betData });
+    },
+    init: ({ coins, last10BetResults }) => {
+      dispatch({ type: "SET_COINS", payload: coins });
+      dispatch({
+        type: "SET_LAST_10_BET",
+        payload: getLast10BetResultIcon(last10BetResults),
+      });
+      dispatch({ type: "SET_RESULT", payload: last10BetResults[0] });
+    },
+    last10Bets: (last10Bets) => {
+      dispatch({
+        type: "SET_LAST_10_BET",
+        payload: getLast10BetResultIcon(last10Bets),
+      });
+    },
+    "total-bet-response": ({ success, coins }) => {
+      if (success) {
+        dispatch({ type: "SET_COINS", payload: coins });
+      }
+    },
+    particularBetCancled: (coins) => {
+      console.log("ale na bhai vapas");
+      dispatch({ type: "SET_COINS", payload: coins });
+    },
+    result: (result) => {
+      dispatch({ type: "SET_MESSAGE", payload: result });
+      dispatch({ type: "SET_RESULT", payload: result });
+    },
+    disconnect: () => {
+      console.log("Disconnected from server");
+    },
+    connect_error: (err) => {
+      console.log(`Connection failed: ${err.message}`);
+    },
+    refresh: () => {
+      socketRef.current.emit("refresh-coins");
+      dispatch({ type: "SET_MESSAGE", payload: "" });
+      dispatch({ type: "RESET_BETS" });
+    },
+  };
+
+  const socketRef = useSocket(
+    "http://192.168.199.92:3000",
+    token,
+    eventHandlers
+  );
+
+  const handleBetPlaced = (animalName) => {
+    if (state.timer <= 10 || state.coins < state.betAmount || state.betClosed) {
+      return;
+    }
+    socketRef.current.emit("total-bet", state.betAmount);
+    dispatch({ type: "SET_TOTAL_BET", payload: state.betAmount });
+    dispatch({
+      type: "SET_ANIMAL_COUNTS",
+      payload: {
+        ...state.animalCounts,
+        [animalName]: state.animalCounts[animalName] + state.betAmount,
+      },
+    });
+  };
+
+  const handleBetAmountChange = (amount) => {
+    dispatch({ type: "SET_BET_AMOUNT", payload: amount });
   };
 
   const submitBet = () => {
-    if (timer <= 10) {
+    if (state.timer <= 10) {
       return;
     }
-    const socket = socketRef.current;
-    socket.emit("bet", animalCounts);
-  };
-  const handleParticularBet = (animal) => {
-    const previousAmountOnThatAnimal = animalCounts[animal];
-    const socket = socketRef.current;
-    socket.emit("cancle-particularBet", previousAmountOnThatAnimal);
-    setTotalBet((prev) => prev - previousAmountOnThatAnimal);
-    console.log(previousAmountOnThatAnimal);
-    setAnimalCounts((prev) => ({
-      ...prev,
-      [animal]: 0,
-    }));
+    socketRef.current.emit("bet", state.animalCounts);
   };
 
-  const handleCancleBet = () => {
-    const socket = socketRef.current;
-    socket.emit("refresh-coins");
-    setAnimalCounts(
-      animalIcons.reduce((acc, animal) => {
+  const handleParticularBet = (animal) => {
+    const previousAmountOnThatAnimal = state.animalCounts[animal];
+    socketRef.current.emit("cancleParticularBet", previousAmountOnThatAnimal);
+
+    dispatch({ type: "SET_TOTAL_BET", payload: -previousAmountOnThatAnimal });
+    dispatch({
+      type: "SET_ANIMAL_COUNTS",
+      payload: { ...state.animalCounts, [animal]: 0 },
+    });
+  };
+
+  const handleCancelBet = () => {
+    socketRef.current.emit("refresh-coins");
+    dispatch({
+      type: "SET_ANIMAL_COUNTS",
+      payload: animalIcons.reduce((acc, animal) => {
         acc[animal.name] = 0;
         return acc;
-      }, {})
-    );
+      }, {}),
+    });
   };
+
+  const getLast10BetResultIcon = (last10Bets) => {
+    return last10Bets.map((animalName) => {
+      const animal = animalIcons.find((animal) => animal.name === animalName);
+      console.log("anim", animal);
+      return animal ? animal.icon : null;
+    });
+  };
+  const {
+    betAmountButton,
+    coins,
+    timer,
+    totalBet,
+    message,
+    betClosed,
+    placedBet,
+    result,
+    last10bet,
+    animalCounts,
+  } = state;
 
   return (
     <div className="flex flex-col w-screen h-screen text-white bg-gradient-to-b md:bg-gradient-to-r from-black via-gray-600  to-gray-400 p-2 md:gap-10">
@@ -277,7 +291,7 @@ const Game = () => {
               {[1, 5, 10, 50, 100, 500].map((val, index) => (
                 <button
                   key={index}
-                  onClick={() => handleBetAmmountChange(val)}
+                  onClick={() => handleBetAmountChange(val)}
                   className={`border rounded p-2 m-1 min-w-12 md:min-w-20 md:min-h-20 text-xl md:text-2xl ${
                     betAmountButton == val
                       ? "bg-yellow-500 border-none shadow-md"
@@ -300,7 +314,7 @@ const Game = () => {
               PLACE BET
             </button>
             <button
-              onClick={handleCancleBet}
+              onClick={handleCancelBet}
               className={` ${
                 betClosed == true ? " bg-gray-500" : "bg-red-500"
               } p-2 md:p-4 w-full md:text-2xl rounded-lg`}
@@ -315,16 +329,17 @@ const Game = () => {
         <p className="text-xs">Last 10 winning animals :</p>
 
         <div className=" flex w-full">
-          {[...last10bet].reverse().map((bet, index) => {
-            return (
-              <FontAwesomeIcon
-                key={index}
-                icon={bet}
-                color="orange"
-                className=" text-xl p-[2px]"
-              />
-            );
-          })}
+          {last10bet &&
+            [...last10bet].reverse().map((bet, index) => {
+              return (
+                <FontAwesomeIcon
+                  key={index}
+                  icon={bet}
+                  color="orange"
+                  className=" text-xl p-[2px]"
+                />
+              );
+            })}
         </div>
       </div>
     </div>
